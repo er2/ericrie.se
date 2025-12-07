@@ -1,0 +1,21 @@
+---
+layout: base.njk
+title: Home
+---
+
+<div class="posts-list">
+  <h2>Posts</h2>
+
+  {%- set allPosts = collections.posts | reverse -%}
+
+  {%- for post in allPosts -%}
+    {%- if not post.data.draft -%}
+    <article class="post-item">
+      <time class="post-date">
+        {{ post.date | readableDate }}
+      </time>
+      <a href="{{ post.url }}" class="post-link">{{ post.data.title }}</a>
+    </article>
+    {%- endif -%}
+  {%- endfor -%}
+</div>
