@@ -1,0 +1,2434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0f1117">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="description" content="Local-first blood pressure tracker">
+<title>BP Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Fraunces:ital,wght@0,400;0,600;0,800;1,400&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<style>
+  :root {
+    /* base */
+    --bg: #0c0e14;
+    --bg-grain: #11141c;
+    --panel: #161a24;
+    --panel-2: #1c2130;
+    --border: #2a3044;
+    --border-bright: #3a4258;
+    --text: #e6e9f2;
+    --text-dim: #9aa0b3;
+    --muted: #5d6478;
+
+    /* accents */
+    --accent: #d4ff3a;     /* electric lime - signature color */
+    --accent-dim: #a8cc2e;
+    --link: #7dd3fc;
+
+    /* AHA classification bands */
+    --aha-normal:    #4ade80;  /* <120/80 */
+    --aha-elevated:  #facc15;  /* 120-129 / <80 */
+    --aha-stage1:    #fb923c;  /* 130-139 / 80-89 */
+    --aha-stage2:    #ef4444;  /* >=140 / >=90 */
+    --aha-crisis:    #b91c1c;  /* >180 / >120 */
+
+    --radius: 4px;
+    --radius-lg: 10px;
+    --shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 8px 24px rgba(0,0,0,.4);
+
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+    --serif: 'Fraunces', Georgia, serif;
+  }
+
+  /* light theme override (optional, body.light) */
+  body.light {
+    --bg: #f5f3ee;
+    --bg-grain: #ebe8e0;
+    --panel: #ffffff;
+    --panel-2: #f8f6f0;
+    --border: #d8d3c5;
+    --border-bright: #b8b2a0;
+    --text: #1a1d28;
+    --text-dim: #5d6478;
+    --muted: #8a8a8a;
+    --accent: #1f6feb;
+    --accent-dim: #1a5dc8;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body { height: 100%; }
+
+  body {
+    background: var(--bg);
+    background-image:
+      radial-gradient(circle at 0% 0%, rgba(212,255,58,0.04), transparent 50%),
+      radial-gradient(circle at 100% 100%, rgba(125,211,252,0.03), transparent 50%);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+    overflow-x: hidden;
+    padding-bottom: 80px;
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* faint grain */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.025 0'/></filter><rect width='200' height='200' filter='url(%23n)'/></svg>");
+    opacity: 0.6;
+    z-index: 1;
+    mix-blend-mode: overlay;
+  }
+
+  body.light::before { opacity: 0.3; mix-blend-mode: multiply; }
+
+  /* HEADER */
+  header {
+    position: relative;
+    z-index: 10;
+    padding: 24px 20px 8px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, var(--bg) 0%, var(--bg) 100%);
+  }
+
+  .logo {
+    font-family: var(--serif);
+    font-weight: 800;
+    font-size: 22px;
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+  .logo em {
+    font-style: italic;
+    font-weight: 400;
+    color: var(--accent);
+  }
+
+  .header-meta {
+    font-size: 11px;
+    color: var(--muted);
+    text-align: right;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .header-meta strong { color: var(--text-dim); font-weight: 500; }
+
+  /* TABS */
+  nav.tabs {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  nav.tabs::-webkit-scrollbar { display: none; }
+
+  nav.tabs ul {
+    display: flex;
+    list-style: none;
+    padding: 0 12px;
+    gap: 0;
+    min-width: max-content;
+  }
+
+  nav.tabs button {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    padding: 14px 16px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    position: relative;
+    white-space: nowrap;
+    transition: color .15s;
+  }
+  nav.tabs button:hover { color: var(--text); }
+  nav.tabs button.active {
+    color: var(--text);
+  }
+  nav.tabs button.active::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 12px;
+    right: 12px;
+    height: 2px;
+    background: var(--accent);
+  }
+  nav.tabs button .num {
+    color: var(--muted);
+    margin-right: 6px;
+  }
+  nav.tabs button.active .num { color: var(--accent); }
+
+  /* MAIN */
+  main {
+    position: relative;
+    z-index: 5;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 24px 20px;
+  }
+
+  .view { display: none; }
+  .view.active { display: block; animation: fadeIn .25s ease-out; }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+  }
+
+  /* CARDS / PANELS */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    margin-bottom: 16px;
+    box-shadow: var(--shadow);
+    position: relative;
+  }
+  .panel.tight { padding: 16px; }
+  .panel h2 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 18px;
+    letter-spacing: -0.01em;
+    margin-bottom: 4px;
+    color: var(--text);
+  }
+  .panel h2 em { font-style: italic; color: var(--accent); font-weight: 400; }
+  .panel .subtitle {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 16px;
+  }
+
+  /* FORM */
+  .entry-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  @media (max-width: 480px) {
+    .entry-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .field label {
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-weight: 500;
+  }
+  .field input, .field textarea, .field select {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 16px;
+    padding: 12px 14px;
+    transition: border-color .15s, background .15s;
+    width: 100%;
+  }
+  .field input:focus, .field textarea:focus, .field select:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--bg);
+  }
+  .field input[type="number"] {
+    font-size: 28px;
+    font-weight: 600;
+    text-align: center;
+    padding: 16px 8px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+  .field textarea {
+    font-size: 14px;
+    min-height: 60px;
+    resize: vertical;
+    font-family: var(--mono);
+  }
+
+  .timestamp-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: 8px;
+    align-items: end;
+    margin-bottom: 12px;
+  }
+
+  /* BUTTONS */
+  button.btn {
+    background: var(--accent);
+    color: #0a0a0a;
+    border: none;
+    border-radius: var(--radius);
+    padding: 14px 20px;
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    transition: transform .1s, filter .15s;
+    width: 100%;
+  }
+  button.btn:hover { filter: brightness(1.1); }
+  button.btn:active { transform: scale(0.98); }
+  button.btn.secondary {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  button.btn.secondary:hover { background: var(--panel); border-color: var(--border-bright); }
+  button.btn.danger {
+    background: transparent;
+    color: var(--aha-stage2);
+    border: 1px solid var(--aha-stage2);
+  }
+  button.btn.danger:hover { background: rgba(239,68,68,.08); }
+  button.btn.small { padding: 8px 12px; font-size: 11px; width: auto; }
+  button.icon {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 4px 8px;
+    font-family: var(--mono);
+  }
+  button.icon:hover { color: var(--text); }
+
+  /* STATS GRID */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+  }
+  .stat {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px;
+  }
+  .stat .label {
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 6px;
+  }
+  .stat .value {
+    font-family: var(--serif);
+    font-size: 28px;
+    font-weight: 600;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+  .stat .value .unit {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--muted);
+    margin-left: 4px;
+    text-transform: uppercase;
+  }
+  .stat .sub {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 6px;
+  }
+
+  /* CLASSIFICATION PILLS */
+  .pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 100px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    border: 1px solid currentColor;
+  }
+  .pill.normal    { color: var(--aha-normal); }
+  .pill.elevated  { color: var(--aha-elevated); }
+  .pill.stage1    { color: var(--aha-stage1); }
+  .pill.stage2    { color: var(--aha-stage2); }
+  .pill.crisis    { color: var(--aha-crisis); background: var(--aha-crisis); color: #fff; border-color: var(--aha-crisis); }
+
+  /* LIST */
+  .reading-list {
+    list-style: none;
+  }
+  .reading-list li {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 16px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+    align-items: start;
+  }
+  .reading-list li:last-child { border-bottom: none; }
+  .reading-time {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-dim);
+    font-size: 12px;
+    min-width: 80px;
+  }
+  .reading-time .date {
+    color: var(--muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .reading-bp {
+    font-family: var(--serif);
+    font-size: 22px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+  .reading-bp .slash { color: var(--muted); font-weight: 300; margin: 0 2px; }
+  .reading-bp .pulse { font-family: var(--mono); font-size: 11px; color: var(--text-dim); margin-left: 8px; font-weight: 400; }
+  .reading-notes {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 4px;
+    font-style: italic;
+  }
+  .reading-actions { display: flex; gap: 4px; align-items: center; }
+
+  /* CHARTS */
+  .chart-wrap {
+    position: relative;
+    height: 320px;
+    margin-top: 8px;
+  }
+  .chart-wrap.tall { height: 420px; }
+  .chart-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .chart-legend .swatch {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: var(--panel-2);
+    border-radius: 100px;
+    border: 1px solid var(--border);
+  }
+  .chart-legend .dot {
+    width: 8px; height: 8px; border-radius: 100px;
+  }
+
+  /* HEATMAP */
+  .heatmap {
+    display: grid;
+    grid-template-columns: 50px repeat(24, 1fr);
+    gap: 2px;
+    font-size: 10px;
+    margin-top: 12px;
+  }
+  .heatmap .label {
+    color: var(--muted);
+    font-size: 9px;
+    text-align: right;
+    padding-right: 4px;
+    line-height: 18px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .heatmap .cell {
+    aspect-ratio: 1;
+    min-height: 14px;
+    border-radius: 2px;
+    background: var(--panel-2);
+    position: relative;
+    cursor: pointer;
+    transition: transform .1s;
+  }
+  .heatmap .cell:hover { transform: scale(1.4); z-index: 5; outline: 1px solid var(--accent); }
+  .heatmap .hour-axis {
+    grid-column: 2 / -1;
+    display: grid;
+    grid-template-columns: repeat(24, 1fr);
+    gap: 2px;
+    color: var(--muted);
+    font-size: 9px;
+    text-align: center;
+    margin-top: 4px;
+  }
+
+  /* TABLE */
+  table.clinical {
+    width: 100%;
+    border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+    font-size: 12px;
+  }
+  table.clinical th, table.clinical td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  table.clinical th {
+    color: var(--muted);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 10px;
+    background: var(--panel-2);
+  }
+  table.clinical tbody tr:hover { background: var(--panel-2); }
+  table.clinical .bp-cell { font-family: var(--serif); font-size: 15px; font-weight: 600; }
+
+  /* TOAST */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(120%);
+    background: var(--panel);
+    border: 1px solid var(--border-bright);
+    border-radius: var(--radius);
+    padding: 12px 20px;
+    font-size: 13px;
+    box-shadow: 0 12px 32px rgba(0,0,0,.5);
+    z-index: 1000;
+    transition: transform .25s cubic-bezier(.2,.8,.2,1);
+    max-width: calc(100vw - 40px);
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+  .toast.error { border-color: var(--aha-stage2); }
+
+  /* MODAL */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.6);
+    backdrop-filter: blur(4px);
+    z-index: 999;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .modal-backdrop.show { display: flex; }
+  .modal {
+    background: var(--panel);
+    border: 1px solid var(--border-bright);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    max-width: 480px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+  .modal h3 {
+    font-family: var(--serif);
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  .modal p { color: var(--text-dim); margin-bottom: 16px; font-size: 13px; }
+  .modal .actions { display: flex; gap: 8px; margin-top: 16px; }
+  .modal .actions button { flex: 1; }
+
+  /* SETTINGS specific */
+  .setting-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 16px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+    align-items: center;
+  }
+  .setting-row:last-child { border-bottom: none; }
+  .setting-row .meta strong {
+    display: block;
+    font-weight: 500;
+    color: var(--text);
+    margin-bottom: 2px;
+  }
+  .setting-row .meta span {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .setting-row .control input[type="number"] {
+    width: 80px;
+    text-align: center;
+    font-size: 14px;
+    padding: 8px;
+  }
+  .setting-row .control input[type="time"] {
+    font-size: 14px;
+    padding: 8px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: var(--radius);
+    font-family: var(--mono);
+  }
+
+  /* Toggle */
+  .toggle {
+    position: relative;
+    width: 44px;
+    height: 24px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    cursor: pointer;
+    transition: background .2s;
+  }
+  .toggle::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 100px;
+    background: var(--text-dim);
+    transition: transform .2s, background .2s;
+  }
+  .toggle.on { background: rgba(212,255,58,.15); border-color: var(--accent); }
+  .toggle.on::after { transform: translateX(20px); background: var(--accent); }
+
+  /* CLASSIFICATION GRID */
+  .class-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .class-cell {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+    border-left-width: 3px;
+  }
+  .class-cell .label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .class-cell .count {
+    font-family: var(--serif);
+    font-size: 22px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .class-cell .pct {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+
+  /* AB SPLIT (morning vs evening) */
+  .ab-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .ab-split > div {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px;
+    text-align: center;
+  }
+  .ab-split .label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .ab-split .bp {
+    font-family: var(--serif);
+    font-size: 26px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+
+  /* PRINT */
+  @media print {
+    body { background: white !important; color: black !important; }
+    body::before { display: none; }
+    nav.tabs, header .header-meta, .no-print { display: none !important; }
+    .view { display: none; }
+    .view.active, .view.print-active { display: block !important; }
+    .panel { border: 1px solid #ccc; box-shadow: none; background: white; page-break-inside: avoid; }
+    .stat, .class-cell, .ab-split > div, .reading-list li, table.clinical th { background: white !important; color: black !important; }
+    .pill { color: black !important; }
+    table.clinical th { color: #555 !important; }
+  }
+
+  /* LOCATION-AWARE meta */
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--muted);
+  }
+  .empty-state .icon {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 60px;
+    color: var(--border-bright);
+    margin-bottom: 8px;
+  }
+  .empty-state .hint { font-size: 12px; margin-top: 8px; }
+
+  /* INSTALL banner */
+  .install-banner {
+    display: none;
+    background: var(--accent);
+    color: #0a0a0a;
+    padding: 8px 20px;
+    font-size: 12px;
+    text-align: center;
+    cursor: pointer;
+  }
+  .install-banner.show { display: block; }
+
+  /* small helpers */
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .row.right { justify-content: flex-end; }
+  .row.between { justify-content: space-between; }
+  .grow { flex: 1; }
+  .mt-8 { margin-top: 8px; }
+  .mt-16 { margin-top: 16px; }
+  .text-dim { color: var(--text-dim); }
+  .text-muted { color: var(--muted); }
+  .small { font-size: 11px; }
+  hr.sep { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+  details summary {
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--text-dim);
+    padding: 8px 0;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  details summary:hover { color: var(--text); }
+
+  /* Reminder indicator */
+  .reminder-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .reminder-status .dot {
+    width: 6px; height: 6px; border-radius: 100px; background: var(--muted);
+  }
+  .reminder-status.active .dot { background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: pulse 2s infinite; }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="logo">bp<em>·</em>tracker</div>
+    <div class="text-muted small" style="margin-top:4px; letter-spacing:0.08em; text-transform:uppercase;">local-first · zero telemetry</div>
+  </div>
+  <div class="header-meta" id="headerMeta">
+    <strong id="readingCountMeta">0 readings</strong><br>
+    <span id="todayMeta">—</span>
+  </div>
+</header>
+
+<nav class="tabs">
+  <ul>
+    <li><button data-view="today" class="active"><span class="num">01</span>Today</button></li>
+    <li><button data-view="trend"><span class="num">02</span>Trend</button></li>
+    <li><button data-view="timeofday"><span class="num">03</span>Time of Day</button></li>
+    <li><button data-view="clinical"><span class="num">04</span>Clinical</button></li>
+    <li><button data-view="settings"><span class="num">05</span>Settings</button></li>
+  </ul>
+</nav>
+
+<main>
+
+  <!-- ========== TODAY VIEW ========== -->
+  <section class="view active" id="view-today">
+
+    <div class="panel">
+      <h2>New <em>reading</em></h2>
+      <div class="subtitle">enter measurement · adds to local store</div>
+
+      <div class="entry-grid">
+        <div class="field">
+          <label>Systolic</label>
+          <input type="number" id="inSys" inputmode="numeric" min="40" max="260" placeholder="—">
+        </div>
+        <div class="field">
+          <label>Diastolic</label>
+          <input type="number" id="inDia" inputmode="numeric" min="30" max="180" placeholder="—">
+        </div>
+        <div class="field">
+          <label>Pulse</label>
+          <input type="number" id="inPulse" inputmode="numeric" min="30" max="220" placeholder="—">
+        </div>
+      </div>
+
+      <div class="timestamp-row">
+        <div class="field">
+          <label>Date</label>
+          <input type="date" id="inDate">
+        </div>
+        <div class="field">
+          <label>Time</label>
+          <input type="time" id="inTime">
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <button class="btn secondary small" id="btnNow" type="button" style="height: 100%;">Now</button>
+        </div>
+      </div>
+
+      <div class="field" style="margin-bottom:12px;">
+        <label>Notes <span class="text-muted">(context, posture, mood, caffeine, exertion…)</span></label>
+        <textarea id="inNotes" placeholder="optional"></textarea>
+      </div>
+
+      <button class="btn" id="btnSave">Save Reading</button>
+    </div>
+
+    <div class="panel">
+      <div class="row between" style="margin-bottom:8px;">
+        <h2>Today's <em>readings</em></h2>
+        <div class="reminder-status" id="reminderStatus">
+          <span class="dot"></span>
+          <span id="reminderText">reminders off</span>
+        </div>
+      </div>
+      <div class="subtitle" id="todaySummary">—</div>
+      <ul class="reading-list" id="todayList"></ul>
+      <div class="empty-state" id="todayEmpty" style="display:none;">
+        <div class="icon">∅</div>
+        <div>No readings yet today.</div>
+        <div class="hint">Add one above to get started.</div>
+      </div>
+    </div>
+
+    <div class="panel tight">
+      <div class="row between">
+        <div>
+          <div class="text-muted small" style="text-transform:uppercase; letter-spacing:0.1em;">Last 7 days</div>
+          <div style="font-family: var(--serif); font-size: 22px; font-weight: 600;" id="weekAvg">—</div>
+        </div>
+        <div style="text-align:right;">
+          <div class="text-muted small" style="text-transform:uppercase; letter-spacing:0.1em;">Readings logged</div>
+          <div style="font-family: var(--serif); font-size: 22px; font-weight: 600;" id="weekCount">—</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== TREND VIEW ========== -->
+  <section class="view" id="view-trend">
+    <div class="panel">
+      <div class="row between" style="margin-bottom:4px;">
+        <div>
+          <h2>30-day <em>trend</em></h2>
+          <div class="subtitle">individual readings · 7-day rolling mean · AHA bands</div>
+        </div>
+        <select id="trendRange" class="field" style="width:auto; padding:6px 10px; font-size:12px; background:var(--panel-2); border:1px solid var(--border); color:var(--text); border-radius:var(--radius); font-family:var(--mono);">
+          <option value="7">7d</option>
+          <option value="14">14d</option>
+          <option value="30" selected>30d</option>
+          <option value="60">60d</option>
+          <option value="90">90d</option>
+          <option value="all">all</option>
+        </select>
+      </div>
+      <div class="chart-wrap tall"><canvas id="trendChart"></canvas></div>
+      <div class="chart-legend">
+        <span class="swatch"><span class="dot" style="background:var(--aha-normal);"></span>Normal &lt;120/80</span>
+        <span class="swatch"><span class="dot" style="background:var(--aha-elevated);"></span>Elevated 120–129</span>
+        <span class="swatch"><span class="dot" style="background:var(--aha-stage1);"></span>Stage 1 130–139/80–89</span>
+        <span class="swatch"><span class="dot" style="background:var(--aha-stage2);"></span>Stage 2 ≥140/90</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Summary</h2>
+      <div class="subtitle">over selected window</div>
+      <div class="stat-grid" id="trendStats"></div>
+    </div>
+  </section>
+
+  <!-- ========== TIME OF DAY VIEW ========== -->
+  <section class="view" id="view-timeofday">
+    <div class="panel">
+      <h2>Reading <em>by hour</em></h2>
+      <div class="subtitle">scatter · all readings · last 30d default</div>
+      <div class="chart-wrap"><canvas id="todChart"></canvas></div>
+    </div>
+
+    <div class="panel">
+      <h2>Heatmap · <em>day × hour</em></h2>
+      <div class="subtitle">average systolic · darker = higher · helps spot confounders</div>
+      <div id="heatmap"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Time-bucket <em>averages</em></h2>
+      <div class="subtitle">groups your readings by part of day</div>
+      <div class="stat-grid" id="todBuckets"></div>
+    </div>
+  </section>
+
+  <!-- ========== CLINICAL VIEW ========== -->
+  <section class="view" id="view-clinical">
+
+    <div class="panel no-print">
+      <div class="row between">
+        <div>
+          <h2>Clinical <em>report</em></h2>
+          <div class="subtitle">format your doctor will recognize</div>
+        </div>
+        <div class="row">
+          <select id="clinicalRange" style="padding:8px 10px; font-size:12px; background:var(--panel-2); border:1px solid var(--border); color:var(--text); border-radius:var(--radius); font-family:var(--mono);">
+            <option value="7">Last 7 days</option>
+            <option value="14" selected>Last 14 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="90">Last 90 days</option>
+          </select>
+          <button class="btn small secondary" onclick="window.print()">Print / PDF</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Average <em>blood pressure</em></h2>
+      <div class="subtitle">morning (before noon) vs evening · the comparison clinicians care about for antihypertensives</div>
+      <div class="ab-split">
+        <div>
+          <div class="label">Morning · pre-noon</div>
+          <div class="bp" id="amBp">—</div>
+          <div class="text-muted small" id="amCount">0 readings</div>
+        </div>
+        <div>
+          <div class="label">Evening · noon onward</div>
+          <div class="bp" id="pmBp">—</div>
+          <div class="text-muted small" id="pmCount">0 readings</div>
+        </div>
+      </div>
+      <hr class="sep">
+      <div class="stat-grid">
+        <div class="stat">
+          <div class="label">Overall mean</div>
+          <div class="value" id="clinMean">—</div>
+          <div class="sub" id="clinClass">—</div>
+        </div>
+        <div class="stat">
+          <div class="label">Mean pulse</div>
+          <div class="value" id="clinPulse">— <span class="unit">bpm</span></div>
+        </div>
+        <div class="stat">
+          <div class="label">Total readings</div>
+          <div class="value" id="clinCount">—</div>
+          <div class="sub" id="clinSpan">—</div>
+        </div>
+        <div class="stat">
+          <div class="label">Pulse pressure</div>
+          <div class="value" id="clinPp">— <span class="unit">mmHg</span></div>
+          <div class="sub">SYS – DIA</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Classification <em>distribution</em></h2>
+      <div class="subtitle">% of readings by AHA category · highest of (sys, dia) wins</div>
+      <div class="class-grid" id="classGrid"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Reading <em>log</em></h2>
+      <div class="subtitle">all readings in window · for inclusion in chart notes</div>
+      <div style="overflow-x:auto;">
+        <table class="clinical" id="clinicalTable">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Time</th>
+              <th>BP</th>
+              <th>Pulse</th>
+              <th>Class</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== SETTINGS VIEW ========== -->
+  <section class="view" id="view-settings">
+
+    <div class="panel">
+      <h2>Random <em>reminders</em></h2>
+      <div class="subtitle">stratified random sampling across waking hours</div>
+      <p class="text-dim small" style="margin-bottom:12px;">
+        The day is split into N equal windows between your wake and sleep times.
+        One reminder fires at a random moment in each window you haven't yet logged a reading for.
+        This approach gives you broader temporal coverage than purely random alerts and helps surface confounders
+        (caffeine, meals, exertion, time-of-day patterns) that might be biasing your data.
+      </p>
+
+      <div class="setting-row">
+        <div class="meta">
+          <strong>Enable reminders</strong>
+          <span>requires notification permission · reminders run while this site is open or installed as a PWA</span>
+        </div>
+        <div class="control">
+          <div class="toggle" id="toggleReminders" role="switch" aria-checked="false"></div>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div class="meta">
+          <strong>Wake time</strong>
+          <span>earliest possible reminder</span>
+        </div>
+        <div class="control"><input type="time" id="wakeTime" value="07:00"></div>
+      </div>
+      <div class="setting-row">
+        <div class="meta">
+          <strong>Sleep time</strong>
+          <span>latest possible reminder</span>
+        </div>
+        <div class="control"><input type="time" id="sleepTime" value="22:00"></div>
+      </div>
+      <div class="setting-row">
+        <div class="meta">
+          <strong>Reminders per day</strong>
+          <span>2–8 · evenly distributed windows</span>
+        </div>
+        <div class="control"><input type="number" id="remindersPerDay" min="1" max="8" value="4"></div>
+      </div>
+
+      <div class="row" style="margin-top:16px; gap:8px;">
+        <button class="btn secondary small" id="btnTestNotif">Test notification</button>
+        <button class="btn secondary small" id="btnViewSchedule">View today's schedule</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Try it with <em>demo data</em></h2>
+      <div class="subtitle">generates 60 days of plausible readings · for evaluation only</div>
+      <p class="text-dim small" style="margin-bottom:12px;">
+        Adds synthetic readings with realistic time-of-day variation and a slight downward trend (as if a new med is working).
+        Wipe afterward before logging real data.
+      </p>
+      <button class="btn secondary small" id="btnDemoData">Load demo data</button>
+    </div>
+
+    <div class="panel">
+      <h2>Import from <em>Google Fit</em></h2>
+      <div class="subtitle">Takeout JSON or CSV · runs locally · nothing uploaded</div>
+      <p class="text-dim small" style="margin-bottom:12px;">
+        From Google Takeout, select Fit, download the archive, and locate
+        <code style="background:var(--panel-2); padding:2px 6px; border-radius:4px; font-size:11px;">Takeout/Fit/All Data/derived_com.google.blood_pressure*.json</code>
+        (or the matching CSV under Daily Aggregations).
+        Drop it below — duplicates are skipped automatically.
+      </p>
+      <div class="row" style="gap:8px;">
+        <input type="file" id="importFile" accept=".json,.csv" style="display:none;">
+        <button class="btn secondary" id="btnImport">Choose file…</button>
+      </div>
+      <div id="importResult" class="small text-dim" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Export <em>your data</em></h2>
+      <div class="subtitle">three formats · for portability and backup</div>
+      <div class="row" style="gap:8px;">
+        <button class="btn secondary small" id="btnExportJson">Export JSON</button>
+        <button class="btn secondary small" id="btnExportCsv">Export CSV</button>
+        <button class="btn secondary small" id="btnExportClinicalCsv">Export clinical CSV</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Display</h2>
+      <div class="setting-row">
+        <div class="meta">
+          <strong>Light mode</strong>
+          <span>better for printing · matches some doctor's office screens</span>
+        </div>
+        <div class="control">
+          <div class="toggle" id="toggleLight" role="switch" aria-checked="false"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Install as <em>PWA</em></h2>
+      <p class="text-dim small">
+        For best background notification support on Android, install this site as an app.
+        Chrome menu → "Add to Home screen" / "Install app". On iOS Safari, share → "Add to Home Screen"
+        (note: iOS limits notification scheduling for PWAs to roughly when they're foregrounded).
+      </p>
+      <div class="row mt-16" style="gap:8px;">
+        <button class="btn secondary small" id="btnInstall" style="display:none;">Install app</button>
+        <button class="btn secondary small" id="btnRegisterSW">Re-register SW</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Danger <em>zone</em></h2>
+      <p class="text-dim small">All readings live in your browser's IndexedDB. Wiping is irreversible. Export first.</p>
+      <div class="row mt-16">
+        <button class="btn danger small" id="btnWipe">Erase all readings</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <details>
+        <summary>About · technical notes</summary>
+        <div class="small text-dim" style="margin-top:12px; line-height:1.7;">
+          Data lives in IndexedDB under the database name <code>bp-tracker</code>. No external services are contacted other than
+          loading Chart.js and Google Fonts on first visit (then cached by the service worker for offline use).
+          The classification scheme follows the 2017 ACC/AHA guideline.
+          The "highest-of (sys, dia)" rule is the standard convention — a reading of 118/92 classifies as Stage 2.
+          Pulse pressure (SYS − DIA) is included because cardiologists evaluating antihypertensives often look at it
+          alongside the absolute numbers.
+        </div>
+      </details>
+    </div>
+
+  </section>
+
+</main>
+
+<div class="toast" id="toast"></div>
+<div class="modal-backdrop" id="modal"></div>
+
+<script>
+/* ============================================================
+   BP TRACKER — single-file, local-first PWA
+   ============================================================ */
+
+/* ---------- Constants ---------- */
+const AHA = {
+  classify(sys, dia) {
+    if (sys >= 180 || dia >= 120) return { key: 'crisis',   label: 'Crisis',         color: 'var(--aha-crisis)' };
+    if (sys >= 140 || dia >= 90)  return { key: 'stage2',   label: 'Stage 2',        color: 'var(--aha-stage2)' };
+    if (sys >= 130 || dia >= 80)  return { key: 'stage1',   label: 'Stage 1',        color: 'var(--aha-stage1)' };
+    if (sys >= 120)               return { key: 'elevated', label: 'Elevated',       color: 'var(--aha-elevated)' };
+    return                              { key: 'normal',   label: 'Normal',         color: 'var(--aha-normal)' };
+  },
+  cssVar(key) {
+    const map = { normal: '--aha-normal', elevated: '--aha-elevated', stage1: '--aha-stage1', stage2: '--aha-stage2', crisis: '--aha-crisis' };
+    return getComputedStyle(document.documentElement).getPropertyValue(map[key]).trim() || '#888';
+  }
+};
+
+const SETTINGS_KEY = 'bp-tracker-settings';
+const DB_NAME = 'bp-tracker';
+const DB_VERSION = 1;
+
+/* ---------- IndexedDB wrapper ---------- */
+const DB = (() => {
+  let _db;
+  function open() {
+    if (_db) return Promise.resolve(_db);
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = e => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('readings')) {
+          const store = db.createObjectStore('readings', { keyPath: 'id', autoIncrement: true });
+          store.createIndex('ts', 'ts', { unique: false });
+        }
+      };
+      req.onsuccess = e => { _db = e.target.result; resolve(_db); };
+      req.onerror = e => reject(e.target.error);
+    });
+  }
+  function tx(mode = 'readonly') {
+    return open().then(db => db.transaction('readings', mode).objectStore('readings'));
+  }
+  return {
+    async add(reading) {
+      const store = await tx('readwrite');
+      return new Promise((res, rej) => {
+        const r = store.add(reading);
+        r.onsuccess = () => res(r.result);
+        r.onerror = e => rej(e.target.error);
+      });
+    },
+    async addMany(readings) {
+      const store = await tx('readwrite');
+      return new Promise((res, rej) => {
+        let errored = false;
+        readings.forEach(r => {
+          const req = store.add(r);
+          req.onerror = e => { errored = true; };
+        });
+        store.transaction.oncomplete = () => res();
+        store.transaction.onerror = e => rej(e.target.error);
+      });
+    },
+    async update(reading) {
+      const store = await tx('readwrite');
+      return new Promise((res, rej) => {
+        const r = store.put(reading);
+        r.onsuccess = () => res(); r.onerror = e => rej(e.target.error);
+      });
+    },
+    async remove(id) {
+      const store = await tx('readwrite');
+      return new Promise((res, rej) => {
+        const r = store.delete(id);
+        r.onsuccess = () => res(); r.onerror = e => rej(e.target.error);
+      });
+    },
+    async all() {
+      const store = await tx();
+      return new Promise((res, rej) => {
+        const r = store.getAll();
+        r.onsuccess = () => res(r.result.sort((a,b) => a.ts - b.ts));
+        r.onerror = e => rej(e.target.error);
+      });
+    },
+    async clear() {
+      const store = await tx('readwrite');
+      return new Promise((res, rej) => {
+        const r = store.clear();
+        r.onsuccess = () => res(); r.onerror = e => rej(e.target.error);
+      });
+    }
+  };
+})();
+
+/* ---------- Settings ---------- */
+const Settings = {
+  defaults: {
+    remindersEnabled: false,
+    wakeTime: '07:00',
+    sleepTime: '22:00',
+    remindersPerDay: 4,
+    light: false
+  },
+  load() {
+    try {
+      const s = JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {};
+      return { ...this.defaults, ...s };
+    } catch { return { ...this.defaults }; }
+  },
+  save(s) {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  }
+};
+
+let settings = Settings.load();
+
+/* ---------- Helpers ---------- */
+const fmt = {
+  date(ts) {
+    const d = new Date(ts);
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  },
+  dateLong(ts) {
+    return new Date(ts).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+  },
+  time(ts) {
+    return new Date(ts).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  },
+  isoDate(ts) {
+    const d = new Date(ts);
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  }
+};
+
+function startOfDay(ts) {
+  const d = new Date(ts);
+  d.setHours(0,0,0,0);
+  return d.getTime();
+}
+function endOfDay(ts) {
+  const d = new Date(ts);
+  d.setHours(23,59,59,999);
+  return d.getTime();
+}
+function timeToMinutes(t) {
+  const [h,m] = t.split(':').map(Number);
+  return h * 60 + m;
+}
+
+function avg(xs) {
+  if (!xs.length) return null;
+  return xs.reduce((a,b) => a+b, 0) / xs.length;
+}
+function round(x, dp = 0) {
+  if (x === null || x === undefined || isNaN(x)) return '—';
+  const p = Math.pow(10, dp);
+  return Math.round(x * p) / p;
+}
+
+function toast(msg, type = '') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (type ? ' ' + type : '');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove('show'), 2800);
+}
+
+function showModal(html) {
+  const m = document.getElementById('modal');
+  m.innerHTML = `<div class="modal">${html}</div>`;
+  m.classList.add('show');
+  m.onclick = e => { if (e.target === m) closeModal(); };
+}
+function closeModal() {
+  document.getElementById('modal').classList.remove('show');
+}
+
+/* ---------- State / cache ---------- */
+let allReadings = [];
+async function refreshReadings() {
+  allReadings = await DB.all();
+  updateHeaderMeta();
+}
+
+function updateHeaderMeta() {
+  document.getElementById('readingCountMeta').textContent = `${allReadings.length} reading${allReadings.length === 1 ? '' : 's'}`;
+  const today = allReadings.filter(r => startOfDay(r.ts) === startOfDay(Date.now()));
+  document.getElementById('todayMeta').textContent = today.length
+    ? `${today.length} today`
+    : 'none today';
+}
+
+/* ---------- Tab routing ---------- */
+const tabButtons = document.querySelectorAll('nav.tabs button');
+tabButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    const v = btn.dataset.view;
+    tabButtons.forEach(b => b.classList.toggle('active', b === btn));
+    document.querySelectorAll('.view').forEach(s => s.classList.toggle('active', s.id === 'view-' + v));
+    if (v === 'trend') renderTrend();
+    if (v === 'timeofday') renderTimeOfDay();
+    if (v === 'clinical') renderClinical();
+    if (v === 'settings') renderSettings();
+  });
+});
+
+/* ---------- Today view ---------- */
+function setupTodayInputs() {
+  const now = new Date();
+  document.getElementById('inDate').value = fmt.isoDate(now.getTime());
+  document.getElementById('inTime').value = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
+}
+
+document.getElementById('btnNow').addEventListener('click', setupTodayInputs);
+
+document.getElementById('btnSave').addEventListener('click', async () => {
+  const sys = parseInt(document.getElementById('inSys').value, 10);
+  const dia = parseInt(document.getElementById('inDia').value, 10);
+  const pulseRaw = document.getElementById('inPulse').value;
+  const pulse = pulseRaw ? parseInt(pulseRaw, 10) : null;
+  const date = document.getElementById('inDate').value;
+  const time = document.getElementById('inTime').value;
+  const notes = document.getElementById('inNotes').value.trim();
+
+  if (!sys || !dia || !date || !time) {
+    toast('Sys, dia, date and time are required', 'error');
+    return;
+  }
+  if (sys < 40 || sys > 260 || dia < 30 || dia > 180) {
+    toast('Out of plausible range — double-check?', 'error');
+    return;
+  }
+  if (sys <= dia) {
+    toast('Systolic should be higher than diastolic', 'error');
+    return;
+  }
+
+  const ts = new Date(date + 'T' + time).getTime();
+  await DB.add({ ts, sys, dia, pulse, notes });
+
+  document.getElementById('inSys').value = '';
+  document.getElementById('inDia').value = '';
+  document.getElementById('inPulse').value = '';
+  document.getElementById('inNotes').value = '';
+  setupTodayInputs();
+
+  await refreshReadings();
+  renderToday();
+  Reminders.markFulfilled();
+  toast('Saved.');
+});
+
+function renderToday() {
+  const todayStart = startOfDay(Date.now());
+  const todayEnd = endOfDay(Date.now());
+  const today = allReadings.filter(r => r.ts >= todayStart && r.ts <= todayEnd);
+
+  const list = document.getElementById('todayList');
+  const empty = document.getElementById('todayEmpty');
+  if (!today.length) {
+    list.innerHTML = '';
+    empty.style.display = 'block';
+  } else {
+    empty.style.display = 'none';
+    list.innerHTML = today.slice().reverse().map(r => renderReadingItem(r)).join('');
+    list.querySelectorAll('[data-delete]').forEach(b => {
+      b.addEventListener('click', async () => {
+        if (!confirm('Delete this reading?')) return;
+        await DB.remove(parseInt(b.dataset.delete, 10));
+        await refreshReadings();
+        renderToday();
+        toast('Deleted.');
+      });
+    });
+  }
+
+  // summary
+  if (today.length) {
+    const sysAvg = avg(today.map(r => r.sys));
+    const diaAvg = avg(today.map(r => r.dia));
+    document.getElementById('todaySummary').textContent =
+      `today's mean · ${round(sysAvg)}/${round(diaAvg)} · ${today.length} reading${today.length === 1 ? '' : 's'}`;
+  } else {
+    document.getElementById('todaySummary').textContent = '—';
+  }
+
+  // 7-day stats
+  const weekCutoff = Date.now() - 7 * 24 * 3600 * 1000;
+  const week = allReadings.filter(r => r.ts >= weekCutoff);
+  if (week.length) {
+    document.getElementById('weekAvg').textContent = `${round(avg(week.map(r => r.sys)))}/${round(avg(week.map(r => r.dia)))}`;
+    document.getElementById('weekCount').textContent = week.length;
+  } else {
+    document.getElementById('weekAvg').textContent = '—';
+    document.getElementById('weekCount').textContent = '0';
+  }
+
+  Reminders.updateStatus();
+}
+
+function renderReadingItem(r) {
+  const cls = AHA.classify(r.sys, r.dia);
+  return `
+    <li>
+      <div class="reading-time">
+        <div>${fmt.time(r.ts)}</div>
+        <div class="date">${fmt.date(r.ts)}</div>
+      </div>
+      <div>
+        <div class="reading-bp">
+          ${r.sys}<span class="slash">/</span>${r.dia}
+          ${r.pulse ? `<span class="pulse">♥ ${r.pulse}</span>` : ''}
+        </div>
+        <span class="pill ${cls.key}">${cls.label}</span>
+        ${r.notes ? `<div class="reading-notes">"${escapeHtml(r.notes)}"</div>` : ''}
+      </div>
+      <div class="reading-actions">
+        <button class="icon" data-delete="${r.id}" title="Delete">×</button>
+      </div>
+    </li>
+  `;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* ---------- Trend view ---------- */
+let trendChart;
+
+function getThemeColors() {
+  const root = getComputedStyle(document.documentElement);
+  return {
+    text: root.getPropertyValue('--text').trim(),
+    muted: root.getPropertyValue('--muted').trim(),
+    border: root.getPropertyValue('--border').trim(),
+    panel: root.getPropertyValue('--panel-2').trim(),
+    aha: {
+      normal: root.getPropertyValue('--aha-normal').trim(),
+      elevated: root.getPropertyValue('--aha-elevated').trim(),
+      stage1: root.getPropertyValue('--aha-stage1').trim(),
+      stage2: root.getPropertyValue('--aha-stage2').trim(),
+      crisis: root.getPropertyValue('--aha-crisis').trim()
+    }
+  };
+}
+
+function rollingMean(points, windowMs) {
+  return points.map((p, i) => {
+    const lo = p.x - windowMs;
+    const window = points.filter(q => q.x >= lo && q.x <= p.x);
+    return { x: p.x, y: avg(window.map(q => q.y)) };
+  });
+}
+
+function renderTrend() {
+  const range = document.getElementById('trendRange').value;
+  let cutoff;
+  if (range === 'all') cutoff = 0;
+  else cutoff = Date.now() - parseInt(range, 10) * 24 * 3600 * 1000;
+  const data = allReadings.filter(r => r.ts >= cutoff);
+
+  // band rectangles via plugin
+  const themeColors = getThemeColors();
+  const bandsPlugin = {
+    id: 'bands',
+    beforeDraw(chart) {
+      const { ctx, chartArea: { left, right, top, bottom }, scales: { y } } = chart;
+      if (!y) return;
+      const sysBands = [
+        { from: 0,   to: 120, color: themeColors.aha.normal,   alpha: 0.05 },
+        { from: 120, to: 130, color: themeColors.aha.elevated, alpha: 0.07 },
+        { from: 130, to: 140, color: themeColors.aha.stage1,   alpha: 0.07 },
+        { from: 140, to: 180, color: themeColors.aha.stage2,   alpha: 0.07 },
+        { from: 180, to: 260, color: themeColors.aha.crisis,   alpha: 0.10 }
+      ];
+      sysBands.forEach(b => {
+        const yTop = y.getPixelForValue(b.to);
+        const yBottom = y.getPixelForValue(b.from);
+        ctx.save();
+        ctx.fillStyle = hexToRgba(b.color, b.alpha);
+        ctx.fillRect(left, Math.min(yTop, yBottom), right - left, Math.abs(yBottom - yTop));
+        ctx.restore();
+      });
+    }
+  };
+
+  if (trendChart) trendChart.destroy();
+  const ctx = document.getElementById('trendChart');
+
+  const sysPoints = data.map(r => ({ x: r.ts, y: r.sys, raw: r }));
+  const diaPoints = data.map(r => ({ x: r.ts, y: r.dia, raw: r }));
+  const sysRolling = rollingMean(sysPoints, 7 * 24 * 3600 * 1000);
+  const diaRolling = rollingMean(diaPoints, 7 * 24 * 3600 * 1000);
+
+  const pointColors = data.map(r => themeColors.aha[AHA.classify(r.sys, r.dia).key] || themeColors.text);
+
+  trendChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      datasets: [
+        {
+          label: 'Systolic',
+          data: sysPoints,
+          borderColor: 'transparent',
+          backgroundColor: pointColors,
+          pointBackgroundColor: pointColors,
+          pointRadius: 4,
+          pointHoverRadius: 6,
+          showLine: false
+        },
+        {
+          label: 'Diastolic',
+          data: diaPoints,
+          borderColor: 'transparent',
+          backgroundColor: pointColors.map(c => hexToRgba(c, 0.5)),
+          pointBackgroundColor: pointColors.map(c => hexToRgba(c, 0.5)),
+          pointRadius: 3,
+          pointHoverRadius: 5,
+          showLine: false
+        },
+        {
+          label: 'Sys 7-day mean',
+          data: sysRolling,
+          borderColor: themeColors.text,
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.2,
+          fill: false
+        },
+        {
+          label: 'Dia 7-day mean',
+          data: diaRolling,
+          borderColor: themeColors.muted,
+          borderWidth: 1.5,
+          borderDash: [4,4],
+          pointRadius: 0,
+          tension: 0.2,
+          fill: false
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: 'nearest', intersect: false },
+      scales: {
+        x: {
+          type: 'time',
+          time: { tooltipFormat: 'MMM d, p' },
+          ticks: { color: themeColors.muted, maxRotation: 0 },
+          grid: { color: themeColors.border, drawTicks: false }
+        },
+        y: {
+          min: 50, max: 200,
+          ticks: { color: themeColors.muted, stepSize: 20 },
+          grid: { color: themeColors.border }
+        }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label(ctx) {
+              const r = ctx.raw.raw;
+              if (!r) return `${ctx.dataset.label}: ${round(ctx.parsed.y, 1)}`;
+              const cls = AHA.classify(r.sys, r.dia);
+              return [`${r.sys}/${r.dia}${r.pulse ? ' · ♥'+r.pulse : ''}`, cls.label, r.notes || ''].filter(Boolean);
+            }
+          }
+        }
+      }
+    },
+    plugins: [bandsPlugin]
+  });
+
+  // stats
+  const stats = document.getElementById('trendStats');
+  if (!data.length) {
+    stats.innerHTML = `<div class="text-muted">No readings in this window.</div>`;
+    return;
+  }
+  const sysAvg = avg(data.map(r => r.sys));
+  const diaAvg = avg(data.map(r => r.dia));
+  const pulses = data.filter(r => r.pulse).map(r => r.pulse);
+  const overallCls = AHA.classify(sysAvg, diaAvg);
+  stats.innerHTML = `
+    <div class="stat">
+      <div class="label">Mean BP</div>
+      <div class="value">${round(sysAvg)}/${round(diaAvg)}</div>
+      <div class="sub" style="color: ${themeColors.aha[overallCls.key]};">${overallCls.label}</div>
+    </div>
+    <div class="stat">
+      <div class="label">Mean pulse</div>
+      <div class="value">${round(avg(pulses), 0)}<span class="unit">bpm</span></div>
+      <div class="sub">${pulses.length}/${data.length} have pulse</div>
+    </div>
+    <div class="stat">
+      <div class="label">Readings</div>
+      <div class="value">${data.length}</div>
+      <div class="sub">${round(data.length / Math.max(1, parseInt(range,10)||30), 1)}/day</div>
+    </div>
+    <div class="stat">
+      <div class="label">Range (sys)</div>
+      <div class="value">${Math.min(...data.map(r=>r.sys))}–${Math.max(...data.map(r=>r.sys))}</div>
+    </div>
+  `;
+}
+
+document.getElementById('trendRange').addEventListener('change', renderTrend);
+
+function hexToRgba(hex, a) {
+  hex = hex.trim();
+  if (hex.startsWith('rgb')) return hex.replace('rgb(', 'rgba(').replace(')', `,${a})`);
+  if (hex.startsWith('#')) hex = hex.slice(1);
+  if (hex.length === 3) hex = hex.split('').map(c => c+c).join('');
+  const r = parseInt(hex.slice(0,2), 16);
+  const g = parseInt(hex.slice(2,4), 16);
+  const b = parseInt(hex.slice(4,6), 16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+/* ---------- Time of day view ---------- */
+let todChart;
+
+function renderTimeOfDay() {
+  const themeColors = getThemeColors();
+  const cutoff = Date.now() - 30 * 24 * 3600 * 1000;
+  const data = allReadings.filter(r => r.ts >= cutoff);
+
+  // scatter: sys vs hour-of-day
+  const scatterPoints = data.map(r => {
+    const d = new Date(r.ts);
+    const hour = d.getHours() + d.getMinutes() / 60;
+    return { x: hour, y: r.sys, _r: r };
+  });
+  const colors = data.map(r => themeColors.aha[AHA.classify(r.sys, r.dia).key]);
+
+  if (todChart) todChart.destroy();
+  todChart = new Chart(document.getElementById('todChart'), {
+    type: 'scatter',
+    data: {
+      datasets: [{
+        label: 'Systolic by hour',
+        data: scatterPoints,
+        backgroundColor: colors,
+        pointRadius: 5,
+        pointHoverRadius: 7
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      scales: {
+        x: { min: 0, max: 24, ticks: { color: themeColors.muted, stepSize: 2, callback: v => `${v}:00` }, grid: { color: themeColors.border }, title: { display: true, text: 'hour of day', color: themeColors.muted } },
+        y: { min: 70, max: 200, ticks: { color: themeColors.muted, stepSize: 20 }, grid: { color: themeColors.border } }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label(ctx) {
+              const r = ctx.raw._r;
+              const h = Math.floor(ctx.raw.x);
+              const m = Math.round((ctx.raw.x - h) * 60);
+              return [`${r.sys}/${r.dia}${r.pulse ? ' · ♥'+r.pulse : ''}`, `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')} · ${fmt.date(r.ts)}`, r.notes || ''].filter(Boolean);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  // heatmap: 7 days × 24 hours, average sys
+  const grid = Array.from({length: 7}, () => Array.from({length: 24}, () => []));
+  data.forEach(r => {
+    const d = new Date(r.ts);
+    const dow = d.getDay();
+    const hour = d.getHours();
+    grid[dow][hour].push(r.sys);
+  });
+  const allVals = grid.flat().flat();
+  const minSys = allVals.length ? Math.min(...allVals) : 100;
+  const maxSys = allVals.length ? Math.max(...allVals) : 160;
+
+  const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const heatmapEl = document.getElementById('heatmap');
+  let html = '<div class="heatmap">';
+  // header row of hours
+  html += '<div class="label"></div>';
+  for (let h = 0; h < 24; h++) {
+    html += `<div class="label" style="text-align:center; padding:0;">${h % 6 === 0 ? h : ''}</div>`;
+  }
+  // body
+  for (let d = 0; d < 7; d++) {
+    html += `<div class="label">${days[d]}</div>`;
+    for (let h = 0; h < 24; h++) {
+      const cellVals = grid[d][h];
+      const m = cellVals.length ? avg(cellVals) : null;
+      let bg = 'var(--panel-2)';
+      let title = `${days[d]} ${h}:00 — no data`;
+      if (m !== null) {
+        const t = (m - minSys) / Math.max(1, maxSys - minSys);
+        const cls = AHA.classify(m, 0);
+        bg = hexToRgba(themeColors.aha[cls.key], 0.3 + 0.7 * t);
+        title = `${days[d]} ${h}:00 — avg ${round(m,1)} · ${cellVals.length} reading${cellVals.length===1?'':'s'}`;
+      }
+      html += `<div class="cell" style="background:${bg};" title="${title}"></div>`;
+    }
+  }
+  html += '</div>';
+  heatmapEl.innerHTML = html;
+
+  // time-bucket averages
+  const buckets = {
+    'Early AM · 4–8':   data.filter(r => { const h = new Date(r.ts).getHours(); return h >= 4 && h < 8; }),
+    'Morning · 8–12':   data.filter(r => { const h = new Date(r.ts).getHours(); return h >= 8 && h < 12; }),
+    'Afternoon · 12–17':data.filter(r => { const h = new Date(r.ts).getHours(); return h >= 12 && h < 17; }),
+    'Evening · 17–22':  data.filter(r => { const h = new Date(r.ts).getHours(); return h >= 17 && h < 22; }),
+    'Night · 22–4':     data.filter(r => { const h = new Date(r.ts).getHours(); return h >= 22 || h < 4; })
+  };
+  document.getElementById('todBuckets').innerHTML = Object.entries(buckets).map(([k, rs]) => {
+    if (!rs.length) return `<div class="stat"><div class="label">${k}</div><div class="value text-muted" style="font-size:18px;">—</div><div class="sub">no readings</div></div>`;
+    const sa = avg(rs.map(r => r.sys));
+    const da = avg(rs.map(r => r.dia));
+    const cls = AHA.classify(sa, da);
+    return `<div class="stat" style="border-left: 3px solid ${themeColors.aha[cls.key]};">
+      <div class="label">${k}</div>
+      <div class="value">${round(sa)}/${round(da)}</div>
+      <div class="sub">${rs.length} reading${rs.length===1?'':'s'} · ${cls.label}</div>
+    </div>`;
+  }).join('');
+}
+
+/* ---------- Clinical view ---------- */
+function renderClinical() {
+  const themeColors = getThemeColors();
+  const range = parseInt(document.getElementById('clinicalRange').value, 10);
+  const cutoff = Date.now() - range * 24 * 3600 * 1000;
+  const data = allReadings.filter(r => r.ts >= cutoff);
+
+  // morning / evening
+  const am = data.filter(r => new Date(r.ts).getHours() < 12);
+  const pm = data.filter(r => new Date(r.ts).getHours() >= 12);
+  document.getElementById('amBp').textContent = am.length ? `${round(avg(am.map(r=>r.sys)))}/${round(avg(am.map(r=>r.dia)))}` : '—';
+  document.getElementById('amCount').textContent = `${am.length} reading${am.length===1?'':'s'}`;
+  document.getElementById('pmBp').textContent = pm.length ? `${round(avg(pm.map(r=>r.sys)))}/${round(avg(pm.map(r=>r.dia)))}` : '—';
+  document.getElementById('pmCount').textContent = `${pm.length} reading${pm.length===1?'':'s'}`;
+
+  // overall stats
+  if (data.length) {
+    const sa = avg(data.map(r => r.sys));
+    const da = avg(data.map(r => r.dia));
+    const cls = AHA.classify(sa, da);
+    document.getElementById('clinMean').textContent = `${round(sa)}/${round(da)}`;
+    document.getElementById('clinClass').textContent = cls.label;
+    document.getElementById('clinClass').style.color = themeColors.aha[cls.key];
+    const pulses = data.filter(r => r.pulse).map(r => r.pulse);
+    document.getElementById('clinPulse').innerHTML = `${round(avg(pulses), 0)} <span class="unit">bpm</span>`;
+    document.getElementById('clinCount').textContent = data.length;
+    const earliest = new Date(data[0].ts);
+    const latest = new Date(data[data.length-1].ts);
+    document.getElementById('clinSpan').textContent = `${fmt.date(earliest)} – ${fmt.date(latest)}`;
+    document.getElementById('clinPp').innerHTML = `${round(sa - da, 0)} <span class="unit">mmHg</span>`;
+  } else {
+    ['clinMean','clinClass','clinPulse','clinCount','clinSpan','clinPp'].forEach(id => document.getElementById(id).textContent = '—');
+  }
+
+  // classification distribution
+  const classes = ['normal','elevated','stage1','stage2','crisis'];
+  const labels = { normal: 'Normal', elevated: 'Elevated', stage1: 'Stage 1', stage2: 'Stage 2', crisis: 'Crisis' };
+  const counts = Object.fromEntries(classes.map(c => [c, 0]));
+  data.forEach(r => counts[AHA.classify(r.sys, r.dia).key]++);
+  document.getElementById('classGrid').innerHTML = classes.map(c => `
+    <div class="class-cell" style="border-left-color: ${themeColors.aha[c]};">
+      <div class="label" style="color: ${themeColors.aha[c]};">${labels[c]}</div>
+      <div class="count">${counts[c]}</div>
+      <div class="pct">${data.length ? round(100 * counts[c] / data.length, 1) : 0}%</div>
+    </div>
+  `).join('');
+
+  // table
+  const tbody = document.querySelector('#clinicalTable tbody');
+  if (!data.length) {
+    tbody.innerHTML = `<tr><td colspan="6" class="text-muted" style="text-align:center; padding:30px;">No readings in window.</td></tr>`;
+  } else {
+    tbody.innerHTML = data.slice().reverse().map(r => {
+      const cls = AHA.classify(r.sys, r.dia);
+      return `<tr>
+        <td>${fmt.dateLong(r.ts)}</td>
+        <td>${fmt.time(r.ts)}</td>
+        <td class="bp-cell">${r.sys}/${r.dia}</td>
+        <td>${r.pulse || '—'}</td>
+        <td><span class="pill ${cls.key}">${cls.label}</span></td>
+        <td>${r.notes ? escapeHtml(r.notes) : ''}</td>
+      </tr>`;
+    }).join('');
+  }
+}
+
+document.getElementById('clinicalRange').addEventListener('change', renderClinical);
+
+/* ---------- Settings view ---------- */
+function renderSettings() {
+  document.getElementById('toggleReminders').classList.toggle('on', settings.remindersEnabled);
+  document.getElementById('wakeTime').value = settings.wakeTime;
+  document.getElementById('sleepTime').value = settings.sleepTime;
+  document.getElementById('remindersPerDay').value = settings.remindersPerDay;
+  document.getElementById('toggleLight').classList.toggle('on', settings.light);
+}
+
+document.getElementById('toggleReminders').addEventListener('click', async () => {
+  if (!settings.remindersEnabled) {
+    if (!('Notification' in window)) {
+      toast('Notifications not supported in this browser', 'error');
+      return;
+    }
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') {
+      toast('Permission denied', 'error');
+      return;
+    }
+  }
+  settings.remindersEnabled = !settings.remindersEnabled;
+  Settings.save(settings);
+  renderSettings();
+  Reminders.reschedule();
+});
+
+document.getElementById('wakeTime').addEventListener('change', e => { settings.wakeTime = e.target.value; Settings.save(settings); Reminders.reschedule(); });
+document.getElementById('sleepTime').addEventListener('change', e => { settings.sleepTime = e.target.value; Settings.save(settings); Reminders.reschedule(); });
+document.getElementById('remindersPerDay').addEventListener('change', e => {
+  let v = parseInt(e.target.value, 10);
+  if (isNaN(v) || v < 1) v = 1;
+  if (v > 8) v = 8;
+  settings.remindersPerDay = v;
+  e.target.value = v;
+  Settings.save(settings);
+  Reminders.reschedule();
+});
+
+document.getElementById('toggleLight').addEventListener('click', () => {
+  settings.light = !settings.light;
+  Settings.save(settings);
+  document.body.classList.toggle('light', settings.light);
+  renderSettings();
+  // re-render charts to pick up new theme colors
+  if (document.getElementById('view-trend').classList.contains('active')) renderTrend();
+  if (document.getElementById('view-timeofday').classList.contains('active')) renderTimeOfDay();
+});
+
+document.getElementById('btnTestNotif').addEventListener('click', async () => {
+  if (!('Notification' in window)) { toast('No notification API', 'error'); return; }
+  let perm = Notification.permission;
+  if (perm !== 'granted') perm = await Notification.requestPermission();
+  if (perm !== 'granted') { toast('Permission denied', 'error'); return; }
+  Reminders.fire('Test reminder · this is what they look like.');
+});
+
+document.getElementById('btnViewSchedule').addEventListener('click', () => {
+  const sched = Reminders.todaySchedule();
+  if (!sched.length) { toast('No reminders scheduled today (already past sleep time?)'); return; }
+  const html = `
+    <h3>Today's reminder schedule</h3>
+    <p>Stratified random across ${settings.remindersPerDay} window${settings.remindersPerDay===1?'':'s'} between ${settings.wakeTime} and ${settings.sleepTime}.</p>
+    <ul style="list-style:none; padding:0;">
+      ${sched.map(s => `
+        <li style="padding:8px 0; border-bottom:1px solid var(--border); display:flex; justify-content:space-between;">
+          <span style="font-family: var(--serif); font-size: 18px;">${s.timeLabel}</span>
+          <span class="text-muted small">${s.fired ? 'fired' : (s.fulfilled ? 'fulfilled — skipped' : 'pending')}</span>
+        </li>
+      `).join('')}
+    </ul>
+    <div class="actions">
+      <button class="btn secondary" onclick="closeModal()">Close</button>
+    </div>
+  `;
+  showModal(html);
+});
+
+/* ---------- Import ---------- */
+document.getElementById('btnImport').addEventListener('click', () => {
+  document.getElementById('importFile').click();
+});
+document.getElementById('importFile').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const text = await file.text();
+  const result = document.getElementById('importResult');
+  result.textContent = 'Parsing…';
+
+  try {
+    let parsed;
+    if (file.name.endsWith('.json')) parsed = parseGoogleFitJson(text);
+    else parsed = parseGoogleFitCsv(text);
+
+    if (!parsed.length) {
+      result.textContent = 'No blood pressure readings detected in file.';
+      return;
+    }
+
+    // dedupe against existing by timestamp
+    const existingTs = new Set(allReadings.map(r => r.ts));
+    const fresh = parsed.filter(r => !existingTs.has(r.ts));
+
+    if (!fresh.length) {
+      result.textContent = `Parsed ${parsed.length} reading(s); all already imported.`;
+      return;
+    }
+
+    await DB.addMany(fresh);
+    await refreshReadings();
+    result.textContent = `Imported ${fresh.length} reading${fresh.length===1?'':'s'} (${parsed.length - fresh.length} duplicate${parsed.length - fresh.length === 1 ? '' : 's'} skipped).`;
+    toast(`Imported ${fresh.length} readings.`);
+    renderToday();
+  } catch (err) {
+    console.error(err);
+    result.textContent = 'Import failed: ' + err.message;
+  } finally {
+    e.target.value = '';
+  }
+});
+
+/* Google Fit JSON parser
+   Two known shapes from Takeout:
+   1. Raw data point export: { "Data Points": [ { startTimeNanos, fitValue: [{ value: { fpVal } }] } ] }
+   2. Aggregated daily / "Derived" exports - same structure, fpVal entries [systolic, diastolic, body_position?, measurement_location?]
+   We pull whatever has at least 2 numeric fpVal entries and treat the first two as sys/dia. */
+function parseGoogleFitJson(text) {
+  const obj = JSON.parse(text);
+  const dataPoints = obj['Data Points'] || obj.dataPoints || obj.data_points || [];
+  if (!Array.isArray(dataPoints)) throw new Error('JSON does not contain a "Data Points" array');
+  const out = [];
+  for (const p of dataPoints) {
+    const startNanos = p.startTimeNanos || p.startTimeMillis * 1e6 || p.start_time_nanos;
+    if (!startNanos) continue;
+    const fitValues = p.fitValue || p.fit_value || p.value || [];
+    if (!Array.isArray(fitValues) || fitValues.length < 2) continue;
+    const nums = fitValues.map(v => {
+      if (typeof v === 'number') return v;
+      const x = v.value ?? v;
+      if (typeof x === 'number') return x;
+      if (x && typeof x.fpVal === 'number') return x.fpVal;
+      if (x && typeof x.intVal === 'number') return x.intVal;
+      return null;
+    }).filter(n => n !== null);
+    if (nums.length < 2) continue;
+    const sys = Math.round(nums[0]);
+    const dia = Math.round(nums[1]);
+    if (sys < 40 || sys > 260 || dia < 30 || dia > 180 || sys <= dia) continue;
+    const ts = Math.floor(Number(startNanos) / 1e6);
+    out.push({ ts, sys, dia, pulse: null, notes: 'imported · Google Fit' });
+  }
+  return out;
+}
+
+/* CSV parser — handles Takeout's Daily Aggregations or generic CSV with columns
+   for date/time/systolic/diastolic/pulse */
+function parseGoogleFitCsv(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) return [];
+  const header = lines[0].split(',').map(h => h.trim().toLowerCase());
+  const idx = name => header.findIndex(h => h.includes(name));
+  const sysI = idx('systolic');
+  const diaI = idx('diastolic');
+  const pulseI = idx('pulse') !== -1 ? idx('pulse') : idx('heart');
+  const dateI = idx('date') !== -1 ? idx('date') : idx('start');
+  const timeI = idx('time');
+  const notesI = idx('note');
+  if (sysI === -1 || diaI === -1) throw new Error('CSV needs systolic and diastolic columns');
+  const out = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cells = parseCsvLine(lines[i]);
+    const sys = parseFloat(cells[sysI]);
+    const dia = parseFloat(cells[diaI]);
+    if (!sys || !dia) continue;
+    let dateStr = (dateI !== -1 ? cells[dateI] : '') || '';
+    let timeStr = (timeI !== -1 ? cells[timeI] : '') || '00:00';
+    let ts;
+    if (dateStr) {
+      // try several formats
+      const tryDate = new Date(dateStr + (timeI !== -1 && timeStr ? 'T' + timeStr : ''));
+      if (!isNaN(tryDate.getTime())) ts = tryDate.getTime();
+      else {
+        const tryDate2 = new Date(dateStr);
+        if (!isNaN(tryDate2.getTime())) ts = tryDate2.getTime();
+      }
+    }
+    if (!ts) continue;
+    out.push({
+      ts,
+      sys: Math.round(sys),
+      dia: Math.round(dia),
+      pulse: pulseI !== -1 && cells[pulseI] ? Math.round(parseFloat(cells[pulseI])) || null : null,
+      notes: notesI !== -1 && cells[notesI] ? cells[notesI] : 'imported · CSV'
+    });
+  }
+  return out;
+}
+function parseCsvLine(line) {
+  const out = []; let cur = ''; let q = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { q = !q; continue; }
+    if (c === ',' && !q) { out.push(cur); cur = ''; continue; }
+    cur += c;
+  }
+  out.push(cur);
+  return out.map(s => s.trim());
+}
+
+/* ---------- Export ---------- */
+function download(filename, content, mime = 'text/plain') {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+document.getElementById('btnExportJson').addEventListener('click', () => {
+  download('bp-tracker-export.json', JSON.stringify(allReadings, null, 2), 'application/json');
+});
+document.getElementById('btnExportCsv').addEventListener('click', () => {
+  const header = 'iso_timestamp,date,time,systolic,diastolic,pulse,classification,notes\n';
+  const rows = allReadings.map(r => {
+    const d = new Date(r.ts);
+    const cls = AHA.classify(r.sys, r.dia).label;
+    const notes = (r.notes || '').replace(/"/g, '""');
+    return [d.toISOString(), fmt.isoDate(r.ts), d.toTimeString().slice(0,5), r.sys, r.dia, r.pulse || '', cls, `"${notes}"`].join(',');
+  }).join('\n');
+  download('bp-tracker-export.csv', header + rows, 'text/csv');
+});
+document.getElementById('btnExportClinicalCsv').addEventListener('click', () => {
+  const header = 'Date,Time,Systolic,Diastolic,Pulse,Notes\n';
+  const rows = allReadings.map(r => {
+    const d = new Date(r.ts);
+    const notes = (r.notes || '').replace(/"/g, '""');
+    return [fmt.dateLong(r.ts), d.toTimeString().slice(0,5), r.sys, r.dia, r.pulse || '', `"${notes}"`].join(',');
+  }).join('\n');
+  download('bp-clinical.csv', header + rows, 'text/csv');
+});
+
+/* ---------- Wipe ---------- */
+document.getElementById('btnDemoData').addEventListener('click', async () => {
+  showModal(`
+    <h3>Load 60 days of demo readings?</h3>
+    <p>This adds synthetic data so you can preview the charts. Won't touch any real readings already saved.</p>
+    <div class="actions">
+      <button class="btn secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn" id="btnConfirmDemo">Add demo data</button>
+    </div>
+  `);
+  document.getElementById('btnConfirmDemo').addEventListener('click', async () => {
+    const readings = [];
+    const now = Date.now();
+    // 60 days, ~3 readings per day at varied times
+    for (let day = 60; day >= 0; day--) {
+      const trend = day / 60; // 1 at start, 0 at end — slight improvement
+      const dayStart = startOfDay(now - day * 24 * 3600 * 1000);
+      // morning (high after waking)
+      readings.push(synth(dayStart, 7, 30, 138 + 8*trend, 88 + 4*trend, 72));
+      // midday
+      if (Math.random() > 0.2) readings.push(synth(dayStart, 13, 60, 130 + 6*trend, 84 + 3*trend, 76));
+      // evening (often higher with caffeine/dinner)
+      readings.push(synth(dayStart, 19, 90, 134 + 7*trend, 86 + 4*trend, 70));
+      // occasional extra
+      if (Math.random() > 0.7) readings.push(synth(dayStart, 22, 30, 128 + 6*trend, 82 + 3*trend, 68));
+    }
+    await DB.addMany(readings);
+    await refreshReadings();
+    closeModal();
+    renderToday();
+    toast(`Added ${readings.length} demo readings.`);
+  });
+  function synth(dayStart, hour, jitterMin, sysBase, diaBase, pulseBase) {
+    const minute = Math.floor(Math.random() * jitterMin);
+    const ts = dayStart + (hour * 60 + minute) * 60 * 1000;
+    const noise = () => (Math.random() - 0.5) * 16;
+    const noiseSm = () => (Math.random() - 0.5) * 8;
+    return {
+      ts,
+      sys: Math.round(sysBase + noise()),
+      dia: Math.round(diaBase + noiseSm()),
+      pulse: Math.round(pulseBase + noiseSm()),
+      notes: ''
+    };
+  }
+});
+
+document.getElementById('btnWipe').addEventListener('click', () => {
+  showModal(`
+    <h3>Erase all readings?</h3>
+    <p>This deletes every reading from local storage. Cannot be undone. Have you exported a backup?</p>
+    <div class="actions">
+      <button class="btn secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn danger" id="btnConfirmWipe">Erase</button>
+    </div>
+  `);
+  document.getElementById('btnConfirmWipe').addEventListener('click', async () => {
+    await DB.clear();
+    await refreshReadings();
+    closeModal();
+    renderToday();
+    toast('All readings erased.');
+  });
+});
+
+/* ---------- Reminders engine ---------- */
+const Reminders = {
+  _timers: [],
+  _scheduleKey: 'bp-tracker-schedule',
+
+  todaySchedule() {
+    // Returns today's randomized window times (or generates them once and caches)
+    const todayKey = fmt.isoDate(Date.now());
+    let cache;
+    try { cache = JSON.parse(localStorage.getItem(this._scheduleKey)) || {}; } catch { cache = {}; }
+    if (cache.date !== todayKey) {
+      cache = { date: todayKey, slots: this._generateSlots() };
+      localStorage.setItem(this._scheduleKey, JSON.stringify(cache));
+    }
+    // mark fulfilled if a reading was logged in the slot's window
+    const slots = cache.slots.map((s, i) => {
+      const slotMs = s.ts;
+      const windowStart = i === 0 ? startOfDay(Date.now()) : cache.slots[i-1].ts;
+      const fulfilled = allReadings.some(r => r.ts >= windowStart && r.ts <= slotMs + 60*60*1000);
+      return {
+        ts: slotMs,
+        timeLabel: new Date(slotMs).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }),
+        fired: s.fired || false,
+        fulfilled
+      };
+    });
+    return slots;
+  },
+
+  _generateSlots() {
+    const wakeMin = timeToMinutes(settings.wakeTime);
+    const sleepMin = timeToMinutes(settings.sleepTime);
+    const span = Math.max(1, sleepMin - wakeMin);
+    const n = Math.max(1, settings.remindersPerDay);
+    const windowSize = span / n;
+    const today = startOfDay(Date.now());
+    const slots = [];
+    for (let i = 0; i < n; i++) {
+      const start = wakeMin + i * windowSize;
+      const end = start + windowSize;
+      // pick a random minute within the window
+      const pick = start + Math.random() * (end - start);
+      const ts = today + Math.floor(pick) * 60 * 1000;
+      slots.push({ ts, fired: false });
+    }
+    return slots;
+  },
+
+  reschedule() {
+    this._timers.forEach(t => clearTimeout(t));
+    this._timers = [];
+    if (!settings.remindersEnabled) { this.updateStatus(); return; }
+    const sched = this.todaySchedule();
+    const now = Date.now();
+    sched.forEach((slot, idx) => {
+      if (slot.fired || slot.fulfilled || slot.ts < now) return;
+      const delay = slot.ts - now;
+      const t = setTimeout(() => {
+        // re-check fulfillment at fire time
+        const refreshed = this.todaySchedule()[idx];
+        if (refreshed && refreshed.fulfilled) return;
+        this.fire('Time to log a blood pressure reading · ' + slot.timeLabel + ' window');
+        this._markFired(idx);
+      }, delay);
+      this._timers.push(t);
+    });
+    this.updateStatus();
+  },
+
+  _markFired(idx) {
+    let cache;
+    try { cache = JSON.parse(localStorage.getItem(this._scheduleKey)) || {}; } catch { return; }
+    if (!cache.slots || !cache.slots[idx]) return;
+    cache.slots[idx].fired = true;
+    localStorage.setItem(this._scheduleKey, JSON.stringify(cache));
+  },
+
+  markFulfilled() {
+    // Called when user logs a reading; reschedule() will skip already-fulfilled slots next time
+    this.reschedule();
+  },
+
+  fire(body) {
+    if (!('Notification' in window)) return;
+    if (Notification.permission !== 'granted') return;
+    try {
+      // prefer SW notification if available (allows action buttons, persistence)
+      if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.ready.then(reg => {
+          reg.showNotification('BP Tracker', {
+            body,
+            tag: 'bp-reminder',
+            icon: ICON_DATA_URL,
+            badge: ICON_DATA_URL,
+            requireInteraction: false
+          });
+        });
+      } else {
+        new Notification('BP Tracker', { body, icon: ICON_DATA_URL });
+      }
+    } catch (e) { console.warn(e); }
+  },
+
+  updateStatus() {
+    const el = document.getElementById('reminderStatus');
+    const txt = document.getElementById('reminderText');
+    if (!settings.remindersEnabled) {
+      el.classList.remove('active');
+      txt.textContent = 'reminders off';
+      return;
+    }
+    const sched = this.todaySchedule();
+    const now = Date.now();
+    const next = sched.find(s => !s.fulfilled && s.ts > now);
+    if (next) {
+      el.classList.add('active');
+      txt.textContent = `next ≈ ${next.timeLabel}`;
+    } else {
+      el.classList.remove('active');
+      txt.textContent = 'no more today';
+    }
+  }
+};
+
+/* ---------- Service worker (inline, registered via blob) ---------- */
+const SW_CODE = `
+const CACHE = 'bp-tracker-v1';
+const ASSETS = [
+  self.location.origin + '/',
+  'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js',
+  'https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js',
+  'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Fraunces:ital,wght@0,400;0,600;0,800;1,400&display=swap'
+];
+self.addEventListener('install', e => {
+  self.skipWaiting();
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(()=>{})));
+});
+self.addEventListener('activate', e => { self.clients.claim(); });
+self.addEventListener('fetch', e => {
+  if (e.request.method !== 'GET') return;
+  e.respondWith(
+    caches.match(e.request).then(cached => cached || fetch(e.request).then(r => {
+      const copy = r.clone();
+      if (r.ok) caches.open(CACHE).then(c => c.put(e.request, copy)).catch(()=>{});
+      return r;
+    }).catch(() => cached))
+  );
+});
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: 'window' }).then(cls => {
+    if (cls.length) return cls[0].focus();
+    return self.clients.openWindow('/');
+  }));
+});
+`;
+
+const ICON_DATA_URL = 'data:image/svg+xml;utf8,' + encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+<rect width="192" height="192" rx="32" fill="#0f1117"/>
+<text x="96" y="118" font-family="Georgia, serif" font-style="italic" font-weight="700" font-size="100" fill="#d4ff3a" text-anchor="middle">bp</text>
+</svg>
+`);
+
+const MANIFEST = {
+  name: 'BP Tracker',
+  short_name: 'BP',
+  description: 'Local-first blood pressure tracker',
+  start_url: '.',
+  display: 'standalone',
+  background_color: '#0f1117',
+  theme_color: '#0f1117',
+  icons: [
+    { src: ICON_DATA_URL, sizes: '192x192', type: 'image/svg+xml' },
+    { src: ICON_DATA_URL, sizes: '512x512', type: 'image/svg+xml' }
+  ]
+};
+
+async function registerSW() {
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    const blob = new Blob([SW_CODE], { type: 'application/javascript' });
+    const url = URL.createObjectURL(blob);
+    await navigator.serviceWorker.register(url, { scope: './' });
+  } catch (e) {
+    console.warn('SW registration failed:', e);
+  }
+}
+
+function injectManifest() {
+  const blob = new Blob([JSON.stringify(MANIFEST)], { type: 'application/manifest+json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('link');
+  link.rel = 'manifest';
+  link.href = url;
+  document.head.appendChild(link);
+}
+
+document.getElementById('btnRegisterSW').addEventListener('click', async () => {
+  await registerSW();
+  toast('Service worker re-registered');
+});
+
+let deferredInstallPrompt;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  document.getElementById('btnInstall').style.display = 'inline-block';
+});
+document.getElementById('btnInstall').addEventListener('click', async () => {
+  if (!deferredInstallPrompt) { toast('Install prompt unavailable — use browser menu'); return; }
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+});
+
+/* ---------- Visibility-driven reminder refresh ---------- */
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    refreshReadings().then(() => {
+      renderToday();
+      Reminders.reschedule();
+    });
+  }
+});
+
+/* ---------- Init ---------- */
+async function init() {
+  if (settings.light) document.body.classList.add('light');
+  await refreshReadings();
+  setupTodayInputs();
+  renderToday();
+  renderSettings();
+  injectManifest();
+  registerSW();
+  Reminders.reschedule();
+
+  // tick reminder status every minute
+  setInterval(() => Reminders.updateStatus(), 60 * 1000);
+
+  // Re-render charts on resize (debounced)
+  let resizeT;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeT);
+    resizeT = setTimeout(() => {
+      if (document.getElementById('view-trend').classList.contains('active')) renderTrend();
+      if (document.getElementById('view-timeofday').classList.contains('active')) renderTimeOfDay();
+    }, 200);
+  });
+}
+
+init();
+</script>
+</body>
+</html>
