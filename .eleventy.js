@@ -5,6 +5,8 @@ export default function(eleventyConfig) {
   // Add CSS
   eleventyConfig.addPassthroughCopy("src/css");
 
+  eleventyConfig.addPassthroughCopy("src/bp/index.html");
+
   // Add date filter for post dates
   eleventyConfig.addFilter("readableDate", (dateObj) => {
     return new Date(dateObj).toLocaleDateString('en-US', {
